@@ -7,18 +7,12 @@
 //
 
 #import "AppDelegate.h"
-#import "CommanderOne.h"
-#include <pwd.h>
+#import "FileManagerSupport/CommanderOne.h"
 #import "FileManager.h"
 #import "Settings.h"
 #import "Realm.h"
-
-#include <Cocoa/Cocoa.h>
-#include <CoreGraphics/CGWindow.h>
-
-#import <NetFS/NetFS.h>
-
-#define ALREADY_LAUNCHED_PREFERENCE @"alreadyLaunched"
+#import "Simulator.h"
+#import "Application.h"
 
 //============================================================================
 @interface AppDelegate ()
@@ -30,28 +24,6 @@
 
 //============================================================================
 @implementation AppDelegate
-
-
-
-//----------------------------------------------------------------------------
-- (NSImage*) scaleImage:(NSImage*)anImage toSize:(NSSize)size
-{
-    NSImage* sourceImage = anImage;
-
-    if ([sourceImage isValid])
-    {
-        NSImage* smallImage = [[NSImage alloc] initWithSize:size];
-        [smallImage lockFocus];
-        [sourceImage setSize:size];
-        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
-        [sourceImage drawAtPoint:NSZeroPoint fromRect:CGRectMake(0, 0, size.width, size.height) operation:NSCompositeCopy fraction:1.0];
-        [smallImage unlockFocus];
-
-        return smallImage;
-    }
-
-    return nil;
-}
 
 //----------------------------------------------------------------------------
 - (void) applicationDidFinishLaunching:(NSNotification*)aNotification
@@ -70,10 +42,10 @@
 {
     NSArray* windows = (NSArray *)CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListExcludeDesktopElements, kCGNullWindowID));
     
-    for(NSDictionary *window in windows)
+    for (NSDictionary* window in windows)
     {
-        NSString* windowOwner = [window objectForKey:(NSString *)kCGWindowOwnerName];
-        NSString* windowName = [window objectForKey:(NSString *)kCGWindowName];
+        NSString* windowOwner = window[(NSString*)kCGWindowOwnerName];
+        NSString* windowName = window[(NSString*)kCGWindowName];
 
         if ([windowOwner containsString:@"Simulator"] &&
             ([windowName containsString:@"iOS"] || [windowName containsString:@"watchOS"] || [windowName containsString:@"tvOS"]))
@@ -100,7 +72,7 @@
     NSImage* icon = nil;
     NSMenu* subMenu = [NSMenu new];
     
-    NSNumber* hotkey = [NSNumber numberWithInt:1];
+    NSNumber* hotkey = @1;
     
     NSMenuItem* finder =
     [[NSMenuItem alloc] initWithTitle:@"Finder" action:@selector(openInFinder:) keyEquivalent:[hotkey stringValue]];
@@ -112,7 +84,7 @@
     
     [subMenu addItem:finder];
 
-    hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+    hotkey = @([hotkey intValue] + 1);
 
     NSMenuItem* terminal =
     [[NSMenuItem alloc] initWithTitle:@"Terminal" action:@selector(openInTerminal:) keyEquivalent:[hotkey stringValue]];
@@ -124,24 +96,21 @@
     
     [subMenu addItem:terminal];
     
-    hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+    hotkey = @([hotkey intValue] + 1);
     
-    if ([Realm isRealmAvailableForPath:path]) {
+    if ([Realm isRealmAvailableForPath:path])
+    {
 
         if (self.realmModule == nil) {
             self.realmModule = [Realm new];
         }
-        
-        NSMenuItem* realmMenuItem = [[NSMenuItem alloc] initWithTitle:@"Realm" action:nil keyEquivalent:[hotkey stringValue]];
-        [realmMenuItem setRepresentedObject:path];
+
         icon = [[NSWorkspace sharedWorkspace] iconForFile:[Realm applicationPath]];
         [icon setSize: NSMakeSize(ACTION_ICON_SIZE, ACTION_ICON_SIZE)];
-        [realmMenuItem setImage:icon];
-        
-        [subMenu addItem:realmMenuItem];
-        [subMenu setSubmenu:[self.realmModule generateRealmMenuForPath:path] forItem:realmMenuItem];
-        
-        hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+
+        [self.realmModule generateRealmMenuForPath:path forMenu:subMenu withHotKey:hotkey icon:icon];
+
+        hotkey = @([hotkey intValue] + 1);
     }
     
     CFStringRef iTermBundleID = CFStringCreateWithCString(CFAllocatorGetDefault(), "com.googlecode.iterm2", kCFStringEncodingUTF8);
@@ -158,7 +127,7 @@
         [iTerm setImage:icon];
         
         [subMenu addItem:iTerm];
-        hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+        hotkey = @([hotkey intValue] + 1);
 
         CFRelease(iTermAppURLs);
     }
@@ -176,7 +145,7 @@
         [commanderOne setImage:icon];
         
         [subMenu addItem:commanderOne];
-        hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+        hotkey = @([hotkey intValue] + 1);
     }
 
     [subMenu addItem:[NSMenuItem separatorItem]];
@@ -186,7 +155,7 @@
     [pasteboard setRepresentedObject:path];
     [subMenu addItem:pasteboard];
     
-    hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+    hotkey = @([hotkey intValue] + 1);
 
     if ([self simulatorRunning])
     {
@@ -195,7 +164,7 @@
         [screenshot setRepresentedObject:path];
         [subMenu addItem:screenshot];
         
-        hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
+        hotkey = @([hotkey intValue] + 1);
     }
     
     NSMenuItem* resetApplication =
@@ -203,173 +172,38 @@
     [resetApplication setRepresentedObject:path];
     [subMenu addItem:resetApplication];
     
-    hotkey = [NSNumber numberWithInt:[hotkey intValue] + 1];
-    
     [item setSubmenu:subMenu];
 }
 
 //----------------------------------------------------------------------------
-- (void) processBundles:(NSArray*)bundles
-          usingRootPath:(NSString*)simulatorRootPath
-    andBundleIdentifier:(NSString*)applicationBundleIdentifier
-         withFinalBlock:(void(^)(NSString* applicationRootBundlePath))block
+- (void) addApplication:(Application*)application toMenu:(NSMenu*)menu
 {
-    for (NSUInteger j = 0; j < [bundles count]; j++)
-    {
-        NSString* appBundleUUID = bundles[j][KEY_FILE];
-        
-        NSString* applicationRootBundlePath =
-            [simulatorRootPath stringByAppendingFormat:@"data/Containers/Bundle/Application/%@/", appBundleUUID];
-        
-        NSString* applicationBundlePropertiesPath =
-            [applicationRootBundlePath stringByAppendingString:@".com.apple.mobile_container_manager.metadata.plist"];
-        
-        NSDictionary* applicationBundleProperties =
-        [NSDictionary dictionaryWithContentsOfFile:applicationBundlePropertiesPath];
-        
-        NSString* bundleIdentifier = applicationBundleProperties[@"MCMMetadataIdentifier"];
-        
-        if ([bundleIdentifier isEqualToString:applicationBundleIdentifier])
-        {
-            block(applicationRootBundlePath);
-            break;
-        }
-    }
-}
+    NSString* title =
+        [NSString stringWithFormat:@"%@ (%@)", application.bundleName, application.version];
 
-//----------------------------------------------------------------------------
-- (NSDictionary*) getMetadataForBundle:(NSString*)applicationBundleIdentifier
-                         usingRootPath:(NSString*)simulatorRootPath
-{
-    __block NSMutableDictionary* metadata = nil;
+    // This path will be opened on click
+    NSString* applicationContentPath = application.contentPath;
 
-    NSString* installedApplicationsBundlePath =
-        [simulatorRootPath stringByAppendingString:@"data/Containers/Bundle/Application/"];
-    
-    NSArray* installedApplicationsBundle =
-        [FileManager getSortedFilesFromFolder:installedApplicationsBundlePath];
-    
-    [self processBundles:installedApplicationsBundle
-           usingRootPath:simulatorRootPath
-     andBundleIdentifier:applicationBundleIdentifier
-         withFinalBlock:^(NSString* applicationRootBundlePath)
-    {
-        NSString* applicationFolderName = [FileManager getApplicationFolderFromPath:applicationRootBundlePath];
-        
-        NSString* applicationFolderPath = [applicationRootBundlePath stringByAppendingFormat:@"%@/", applicationFolderName];
-        
-        NSString* applicationPlistPath = [applicationFolderPath stringByAppendingString:@"Info.plist"];
-        
-        NSDictionary* applicationPlist = [NSDictionary dictionaryWithContentsOfFile:applicationPlistPath];
-        
-        NSString* applicationVersion = applicationPlist[@"CFBundleVersion"];
-        NSString* applicationBundleName = applicationPlist[@"CFBundleName"];
-        
-        if (applicationBundleName.length == 0)
-        {
-            applicationBundleName = applicationPlist[@"CFBundleDisplayName"];
-        }
-        
-        NSImage* icon = [self getIconForApplicationWithPlist:applicationPlist folder:applicationFolderPath];
-        
-        metadata = [NSMutableDictionary new];
-        
-        metadata[@"applicationBundleName"] = applicationBundleName;
-        metadata[@"applicationVersion"] = applicationVersion;
-        metadata[@"applicationIcon"] = icon;
-    }];
-    
-    return metadata;
-}
-
-//----------------------------------------------------------------------------
-- (void) addApplication:(NSDictionary*)application
-                 toMenu:(NSMenu*)menu
-          usingRootPath:(NSString*)simulatorRootPath
-             andAppUUID:(NSString*)uuid
-                atIndex:(NSUInteger)i
-{
-    NSString* applicationBundleIdentifier = application[@"MCMMetadataIdentifier"];
-    
-    NSDictionary* metadata =
-        [self getMetadataForBundle:applicationBundleIdentifier
-                     usingRootPath:simulatorRootPath];
-    
-    if (metadata)
-    {
-        NSString* title =
-        [NSString stringWithFormat:@"%@ (%@)", metadata[@"applicationBundleName"], metadata[@"applicationVersion"]];
-        
-        // This path will be opened on click
-        NSString* applicationContentPath = [self applicationRootPathByUUID:uuid andRootPath:simulatorRootPath];
-        
-        NSMenuItem* item =
+    NSMenuItem* item =
         [[NSMenuItem alloc] initWithTitle:title action:@selector(openInWithModifier:)
-                            keyEquivalent:[NSString stringWithFormat:@"Alt-%lu", (unsigned long)i]];
+            keyEquivalent:@""];
 
-        [item setRepresentedObject:applicationContentPath];
-        [item setImage:metadata[@"applicationIcon"]];
-        
-        [self addSubMenusToItem:item usingPath:applicationContentPath];
-        
-        
-        [menu addItem:item];
-    }
+    [item setRepresentedObject:applicationContentPath];
+    [item setImage:application.icon];
+
+    [self addSubMenusToItem:item usingPath:applicationContentPath];
+
+    [menu addItem:item];
 }
 
 //----------------------------------------------------------------------------
-- (NSString*) applicationRootPathByUUID:(NSString*)uuid
-                            andRootPath:(NSString*)simulatorRootPath
-{
-    return
-    [simulatorRootPath stringByAppendingFormat:@"data/Containers/Data/Application/%@/", uuid];
-}
-
-//----------------------------------------------------------------------------
-- (NSDictionary*) getApplicationPropertiesByUUID:(NSString*)uuid
-                                     andRootPath:(NSString*)simulatorRootPath
-{
-    NSString* applicationRootPath =
-    [self applicationRootPathByUUID:uuid andRootPath:simulatorRootPath];
-    
-    NSString* applicationDataPropertiesPath =
-    [applicationRootPath stringByAppendingString:@".com.apple.mobile_container_manager.metadata.plist"];
-    
-    return
-    [NSDictionary dictionaryWithContentsOfFile:applicationDataPropertiesPath];
-}
-
-//----------------------------------------------------------------------------
-- (BOOL) isAppleApplication:(NSDictionary*)applicationProperties
-{
-    NSString* applicationBundleIdentifier = applicationProperties[@"MCMMetadataIdentifier"];
-    
-    return [applicationBundleIdentifier hasPrefix:@"com.apple"];
-}
-
-//----------------------------------------------------------------------------
-- (void) addSimulatorApplications:(NSArray*)installedApplicationsData
-                    usingRootPath:(NSString*)simulatorRootPath
-                           toMenu:(NSMenu*)menu
+- (void) addApplications:(NSArray<Application*>*)installedApplicationsData toMenu:(NSMenu*)menu
 {
     for (NSUInteger i = 0; i < [installedApplicationsData count]; i++)
     {
-        NSString* uuid = installedApplicationsData[i][KEY_FILE];
+        Application* application = installedApplicationsData[i];
 
-        NSDictionary* applicationDataProperties =
-        [self getApplicationPropertiesByUUID:uuid andRootPath:simulatorRootPath];
-        
-        if (applicationDataProperties)
-        {
-            if (![self isAppleApplication:applicationDataProperties])
-            {
-                [self addApplication:applicationDataProperties
-                              toMenu:menu
-                       usingRootPath:simulatorRootPath
-                          andAppUUID:uuid
-                             atIndex:i];
-            }
-        }
+        [self addApplication:application toMenu:menu];
     }
 }
 
@@ -387,7 +221,7 @@
 }
 
 //----------------------------------------------------------------------------
-- (NSString*) activeSimulatorRoot
+- (NSMutableArray*) simulatorPaths
 {
     NSString* simulatorPropertiesPath =
     [NSString stringWithFormat:@"%@/Library/Preferences/com.apple.iphonesimulator.plist", [self homeDirectoryPath]];
@@ -396,72 +230,72 @@
 
     NSString* uuid = simulatorProperties[@"CurrentDeviceUDID"];
     
-    return [self simulatorRootPathByUUID:uuid];
+    NSDictionary* devicePreferences = simulatorProperties[@"DevicePreferences"];
+    
+    NSMutableArray* simulatorPaths = [NSMutableArray new];
+
+    [simulatorPaths addObject:[self simulatorRootPathByUUID:uuid]];
+    
+    if (devicePreferences != nil)
+    {
+        // we're running on xcode 9
+        for (NSString* uuid in [devicePreferences allKeys])
+        {
+            [simulatorPaths addObject:[self simulatorRootPathByUUID:uuid]];
+        }
+    }
+    
+    return simulatorPaths;
 }
 
 //----------------------------------------------------------------------------
-- (NSDictionary*) activeSimulatorProperties
+- (NSMutableArray<Simulator*>*) activeSimulators
 {
-    NSString* simulatorDetailsPath =
-    [[self activeSimulatorRoot] stringByAppendingString:@"device.plist"];
+    NSMutableArray* simulatorPaths = [self simulatorPaths];
+    
+    NSMutableArray* simulators = [NSMutableArray new];
+    
+    for (NSString* path in simulatorPaths)
+    {
+        NSString* simulatorDetailsPath = [path stringByAppendingString:@"device.plist"];
+        
+        NSDictionary* properties = [NSDictionary dictionaryWithContentsOfFile:simulatorDetailsPath];
 
-    return
-    [NSDictionary dictionaryWithContentsOfFile:simulatorDetailsPath];
+        if (properties == nil) { continue; } // skip "empty" properties
+        
+        Simulator* simulator = [Simulator simulatorWithDictionary:properties path:path];
+        [simulators addObject:simulator];
+    }
+    
+    return simulators;
 }
 
 //----------------------------------------------------------------------------
-- (NSString*) activeSimulatorName:(NSDictionary*)properties
-{
-    return
-    properties[@"name"];
-}
-
-//----------------------------------------------------------------------------
-- (NSString*) activeSimulatorRuntime:(NSDictionary*)properties
-{
-    return
-    [properties[@"runtime"] stringByReplacingOccurrencesOfString:@"com.apple.CoreSimulator.SimRuntime." withString:@""];
-}
-
-//----------------------------------------------------------------------------
-- (NSArray*) installedAppsOnSimulator:(NSString*)simulatorRootPath
+- (NSArray<Application*>*) installedAppsOnSimulator:(Simulator*)simulator
 {
     NSString* installedApplicationsDataPath =
-    [simulatorRootPath stringByAppendingString:@"data/Containers/Data/Application/"];
+    [simulator.path stringByAppendingString:@"data/Containers/Data/Application/"];
     
     NSArray* installedApplications =
     [FileManager getSortedFilesFromFolder:installedApplicationsDataPath];
     
-    return installedApplications;
-}
-
-//----------------------------------------------------------------------------
-- (NSArray*) getDevices
-{
-    NSString* devicesPropertiesPath =
-    [NSString stringWithFormat:@"%@/Library/Preferences/com.dsmelov.devices.plist", [self homeDirectoryPath]];
+    NSMutableArray* userApplications = [NSMutableArray new];
     
-    NSDictionary* devicesList = [NSDictionary dictionaryWithContentsOfFile:devicesPropertiesPath];
-    
-    return
-    devicesList[@"Devices"];
-}
-
-//----------------------------------------------------------------------------
-- (void) addDevices:(NSArray*)devices toMenu:(NSMenu*)menu
-{
-    if ([devices count])
+    for (NSDictionary* app in installedApplications)
     {
-        [menu addItem:[NSMenuItem separatorItem]];
+        Application* application = [Application applicationWithDictionary:app simulator:simulator];
         
-        for (NSDictionary* device in devices)
+        if (application)
         {
-            NSString* hostname = device[@"name"];
-            NSMenuItem* webdavDevice = [[NSMenuItem alloc] initWithTitle:hostname action:@selector(openWebDav:) keyEquivalent:@""];
-            [webdavDevice setRepresentedObject:device];
-            [menu addItem:webdavDevice];
+            if (!application.isAppleApplication)
+            {
+                [userApplications addObject:application];
+            }
         }
+
     }
+    
+    return userApplications;
 }
 
 //----------------------------------------------------------------------------
@@ -490,126 +324,49 @@
     [menu addItem:quit];
 }
 
+#define MAX_RECENT_SIMULATORS 5
+
 //----------------------------------------------------------------------------
 - (void) presentApplicationMenu
 {
     NSMenu* menu = [NSMenu new];
 
-    NSString* simulatorRootPath = [self activeSimulatorRoot];
-    NSDictionary* simulatorDetails = [self activeSimulatorProperties];
+    NSMutableArray* simulators = [self activeSimulators];
+    
+    NSArray* recentSimulators = [simulators sortedArrayUsingComparator:^NSComparisonResult(id a, id b)
+    {
+        NSDate* l = [(Simulator*)a date];
+        NSDate* r = [(Simulator*)b date];
+        return [r compare:l];
+    }];
+    
+    int simulatorsCount = 0;
+    for (Simulator* simulator in recentSimulators)
+    {
+        NSArray<Application*>* installedApplications = [self installedAppsOnSimulator:simulator];
 
-
-    NSString* simulator_title = [NSString stringWithFormat:@"%@ (%@)",
-                                 [self activeSimulatorName:simulatorDetails],
-                                 [self activeSimulatorRuntime:simulatorDetails]];
-    
-    NSMenuItem* simulator = [[NSMenuItem alloc] initWithTitle:simulator_title action:nil keyEquivalent:@""];
-    [simulator setEnabled:NO];
-    [menu addItem:simulator];
-    
-    NSArray* installedApplications = [self installedAppsOnSimulator:simulatorRootPath];
-    [self addSimulatorApplications:installedApplications usingRootPath:simulatorRootPath toMenu:menu];
-    
-    [self addDevices:[self getDevices] toMenu:menu];
+        if ([installedApplications count])
+        {
+            NSString* simulator_title = [NSString stringWithFormat:@"%@ (%@)",
+                                         simulator.name,
+                                         simulator.os];
+            
+            NSMenuItem* simulatorMenuItem = [[NSMenuItem alloc] initWithTitle:simulator_title action:nil keyEquivalent:@""];
+            [simulatorMenuItem setEnabled:NO];
+            [menu addItem:simulatorMenuItem];
+            [self addApplications:installedApplications toMenu:menu];
+            
+            simulatorsCount++;
+            if (simulatorsCount >= MAX_RECENT_SIMULATORS)
+                break;
+        }
+    }
     
     [menu addItem:[NSMenuItem separatorItem]];
 
     [self addServiceItemsToMenu:menu];
 
     [_statusItem popUpStatusItemMenu:menu];
-}
-
-//----------------------------------------------------------------------------
-- (NSImage*)roundCorners:(NSImage *)image
-{
-    
-    NSImage *existingImage = image;
-    NSSize existingSize = [existingImage size];
-    NSSize newSize = NSMakeSize(existingSize.width, existingSize.height);
-    NSImage *composedImage = [[NSImage alloc] initWithSize:newSize];
-    
-    [composedImage lockFocus];
-    [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
-    
-    NSRect imageFrame = NSRectFromCGRect(CGRectMake(0, 0, existingSize.width, existingSize.height));
-    NSBezierPath *clipPath = [NSBezierPath bezierPathWithRoundedRect:imageFrame xRadius:3 yRadius:3];
-    [clipPath setWindingRule:NSEvenOddWindingRule];
-    [clipPath addClip];
-    
-    [image drawAtPoint:NSZeroPoint fromRect:NSMakeRect(0, 0, newSize.width, newSize.height) operation:NSCompositeSourceOver fraction:1];
-    
-    [composedImage unlockFocus];
-    
-    return composedImage;
-}
-//----------------------------------------------------------------------------
-- (NSImage*) getIconForApplicationWithPlist:(NSDictionary*)applicationPlist folder:(NSString*)applicationFolderPath
-{
-    NSString* iconPath;
-    NSString* applicationIcon  = applicationPlist[@"CFBundleIconFile"];
-    NSFileManager* fileManager = [NSFileManager defaultManager];
-    
-    if (applicationIcon != nil)
-    {
-        iconPath = [applicationFolderPath stringByAppendingString:applicationIcon];
-    }
-    else
-    {
-        NSDictionary* applicationIcons = applicationPlist[@"CFBundleIcons"];
-
-        NSString* postfix = @"";
-
-        if (!applicationIcons)
-        {
-            applicationIcons = applicationPlist[@"CFBundleIcons~ipad"];
-            postfix = @"~ipad";
-        }
-
-        NSDictionary* applicationPrimaryIcons = applicationIcons[@"CFBundlePrimaryIcon"];
-        if (applicationPrimaryIcons && [applicationPrimaryIcons isKindOfClass:[NSDictionary class]]) {
-            NSArray* iconFiles = nil;
-            NS_DURING
-            iconFiles = applicationPrimaryIcons[@"CFBundleIconFiles"];
-            NS_HANDLER
-            NS_ENDHANDLER
-            
-            if (iconFiles && iconFiles.count > 0) {
-                applicationIcon = [iconFiles lastObject];
-                
-                iconPath = [applicationFolderPath stringByAppendingFormat:@"%@%@.png", applicationIcon, postfix];
-                
-                if (![fileManager fileExistsAtPath:iconPath])
-                {
-                    iconPath = [applicationFolderPath stringByAppendingFormat:@"%@@2x%@.png", applicationIcon, postfix];
-                }
-            }
-            else {
-                iconPath = nil;
-            }
-        }
-        else {
-            iconPath = nil;
-        }
-    }
-
-    if (![fileManager fileExistsAtPath:iconPath])
-    {
-        iconPath = nil;
-    }
-    
-    NSImage* icon = nil;
-    if (iconPath == nil)
-    {
-        icon = [NSImage imageNamed:@"empty_icon"];
-    }
-    else
-    {
-        icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-    }
-
-    icon = [self roundCorners:[self scaleImage:icon toSize:NSMakeSize(32, 32)]];
-    
-    return icon;
 }
 
 //----------------------------------------------------------------------------
@@ -635,85 +392,13 @@
 }
 
 //----------------------------------------------------------------------------
-- (void) mount:(NSURL *)networkShare usingName:(NSString*)name inApp:(NSString*)app
-{
-    NSURL *mountPath = [NSURL URLWithString:[NSString stringWithFormat:@"/Volumes/%@/", name]];
-    
-    [[NSFileManager defaultManager] createDirectoryAtPath:[mountPath absoluteString]
-                              withIntermediateDirectories:NO attributes:nil error:nil];
-    
-    dispatch_queue_t queue = dispatch_get_main_queue();
-    AsyncRequestID requestID = NULL;
-    
-    /*
-     * The following dictionary keys for open_options are supported:
-     *
-     *	kNetFSUseGuestKey:			Login as a guest user.
-     *
-     *	kNetFSAllowLoopbackKey			Allow a loopback mount.
-     *
-     *	kNAUIOptionKey = UIOption		Suppress authentication dialog UI.
-     *      kNAUIOptionNoUI
-     *      kNAUIOptionAllowUI
-     *      kNAUIOptionForceUI
-     */
-    
-    /*
-     *  The following dictionary keys for mount_options are supported:
-     *
-     *	kNetFSMountFlagsKey = MNT_DONTBROWSE 	No browsable data here (see <sys/mount.h>).
-     *	kNetFSMountFlagsKey = MNT_RDONLY	A read-only mount (see <sys/mount.h>).
-     *	kNetFSAllowSubMountsKey = true		Allow a mount from a dir beneath the share point.
-     *	kNetFSSoftMountKey = true		Mount with "soft" failure semantics.
-     *	kNetFSMountAtMountDirKey = true		Mount on the specified mountpath instead of below it.
-     *
-     * Note that if kNetFSSoftMountKey isn't set, then it's set to TRUE.
-     *
-     */
-    
-    NSMutableDictionary *openOptions =
-    [@{ (__bridge NSString *)kNAUIOptionKey : (__bridge NSString *)kNAUIOptionNoUI,} mutableCopy ];
-    
-    NSMutableDictionary *mountOptions =
-    [@{ (__bridge NSString *)kNetFSAllowSubMountsKey : @YES, (__bridge NSString *)kNetFSMountAtMountDirKey : @YES,} mutableCopy ];
-        
-    int rc =
-    NetFSMountURLAsync((__bridge CFURLRef)networkShare,
-        (__bridge CFURLRef)mountPath,
-        (__bridge CFStringRef)(@""), // user
-        (__bridge CFStringRef)(@""), // password
-        (__bridge CFMutableDictionaryRef)(openOptions),
-        (__bridge CFMutableDictionaryRef)(mountOptions),
-        &requestID,
-        queue,
-        ^(int status, AsyncRequestID requestID, CFArrayRef mountpoints)
-        {
-            NSArray *mounts = CFBridgingRelease(mountpoints);
-            NSLog(@"Mounting status code: %d %@", status, mounts);
-            [[NSWorkspace sharedWorkspace] openFile:mounts[0] withApplication:app];
-        });
-    
-    NSLog(@"Request status code: %d", rc);
-}
-
-//----------------------------------------------------------------------------
-- (void) openWebDav:(id)sender
-{
-    NSDictionary* device = (NSDictionary*)[sender representedObject];
-    NSString* path = device[@"url"];
-    NSString* name = device[@"name"];
-    
-    [self mount:[NSURL URLWithString: path] usingName:name inApp:@"Finder"];
-}
-
-//----------------------------------------------------------------------------
 - (void) copyToPasteboard:(id)sender
 {
     NSString* path = (NSString*)[sender representedObject];
     
     NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
-    
-    [pasteboard declareTypes:[NSArray arrayWithObject:NSPasteboardTypeString] owner:nil];
+
+    [pasteboard declareTypes:@[ NSPasteboardTypeString ] owner:nil];
     [pasteboard setString:path forType:NSPasteboardTypeString];
 }
 
@@ -724,13 +409,13 @@
     
     for(NSDictionary *window in windows)
     {
-        NSString* windowOwner = [window objectForKey:(NSString *)kCGWindowOwnerName];
-        NSString* windowName = [window objectForKey:(NSString *)kCGWindowName];
+        NSString* windowOwner = window[(NSString*)kCGWindowOwnerName];
+        NSString* windowName = window[(NSString*)kCGWindowName];
 
         if ([windowOwner containsString:@"Simulator"] &&
             ([windowName containsString:@"iOS"] || [windowName containsString:@"watchOS"] || [windowName containsString:@"tvOS"]))
         {
-            NSNumber* windowID = [window objectForKey:(NSString *)kCGWindowNumber];
+            NSNumber* windowID = window[(NSString*)kCGWindowNumber];
             
             NSString *dateComponents = @"yyyyMMdd_HHmmss_SSSS";
             NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
@@ -744,9 +429,9 @@
             [NSString stringWithFormat:@"%@/Desktop/Screen Shot at %@.png", [self homeDirectoryPath], dateString];
 
             CGRect bounds;
-            CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)[window objectForKey:(NSString*)kCGWindowBounds], &bounds);
+            CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)window[(NSString*)kCGWindowBounds], &bounds);
             
-            CGImageRef image = CGWindowListCreateImage(bounds, kCGWindowListOptionIncludingWindow, [windowID intValue], kCGWindowImageDefault);
+            CGImageRef image = CGWindowListCreateImage(bounds, kCGWindowListOptionIncludingWindow, (CGWindowID)[windowID intValue], kCGWindowImageDefault);
             NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:image];
             
             NSData *data = [bitmap representationUsingType: NSPNGFileType properties:@{}];
@@ -772,7 +457,7 @@
     while (file = [en nextObject])
     {
         result = [fm removeItemAtPath:[path stringByAppendingPathComponent:file] error:&error];
-        if (result == NO && error)
+        if (!result && error)
         {
             NSLog(@"Something went wrong: %@", error);
         }
