@@ -8,7 +8,7 @@
 #import <AppKit/AppKit.h>
 #import "Application.h"
 #import "Simulator.h"
-#import "FileManager.h"
+#import "SimSim-Swift.h"
 
 //============================================================================
 @interface Application ()
@@ -39,7 +39,8 @@
 
     if (self)
     {
-        self.uuid = dictionary[KEY_FILE];
+        self.uuid = [Tools getNameFrom:dictionary];
+
         self.properties = [self getApplicationPropertiesByUUID:self.uuid andRootPath:simulator.path];
 
         [self buildMetadataForBundle:self.bundleIdentifier usingRootPath:simulator.path];
@@ -89,14 +90,14 @@
         [simulatorRootPath stringByAppendingString:@"data/Containers/Bundle/Application/"];
 
     NSArray* installedApplicationsBundle =
-        [FileManager getSortedFilesFromFolder:installedApplicationsBundlePath];
+        [Tools getSortedFilesFromFolder:installedApplicationsBundlePath];
 
     [self processBundles:installedApplicationsBundle
         usingRootPath:simulatorRootPath
         andBundleIdentifier:applicationBundleIdentifier
         withFinalBlock:^(NSString* applicationRootBundlePath)
         {
-            NSString* applicationFolderName = [FileManager getApplicationFolderFromPath:applicationRootBundlePath];
+            NSString* applicationFolderName = [Tools getApplicationFolderFromPath:applicationRootBundlePath];
 
             NSString* applicationFolderPath = [applicationRootBundlePath stringByAppendingFormat:@"%@/", applicationFolderName];
 
@@ -221,7 +222,7 @@
 {
     for (NSUInteger j = 0; j < [bundles count]; j++)
     {
-        NSString* appBundleUUID = bundles[j][KEY_FILE];
+        NSString* appBundleUUID = [Tools getNameFrom:bundles[j]];
 
         NSString* applicationRootBundlePath =
             [simulatorRootPath stringByAppendingFormat:@"data/Containers/Bundle/Application/%@/", appBundleUUID];
