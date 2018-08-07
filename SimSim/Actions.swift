@@ -98,9 +98,9 @@ class Actions: NSObject
     //----------------------------------------------------------------------------
     class func handleStart(atLogin sender: NSMenuItem)
     {
-        let isEnabled: Bool = sender.representedObject != nil
+        let isEnabled: Bool = sender.representedObject as! Bool
         
-        Settings.setStartAtLoginEnabled(!isEnabled)
+        Settings.isStartAtLoginEnabled = !isEnabled
         sender.representedObject = !isEnabled
         
         if isEnabled
@@ -124,11 +124,11 @@ class Actions: NSObject
     {
         guard let event = NSApp.currentEvent else { return }
         
-        if UInt8(event.modifierFlags.rawValue) & UInt8(NSAlternateKeyMask.rawValue) != 0
+        if event.modifierFlags.rawValue & NSAlternateKeyMask.rawValue != 0
         {
             Actions.open(inTerminal: sender)
         }
-        else if UInt8(event.modifierFlags.rawValue) & UInt8(NSControlKeyMask.rawValue) != 0
+        else if event.modifierFlags.rawValue & NSControlKeyMask.rawValue != 0
         {
             if Tools.commanderOneAvailable()
             {
