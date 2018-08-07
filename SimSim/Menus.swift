@@ -83,6 +83,17 @@ class Menus: NSObject
     }
     
     //----------------------------------------------------------------------------
+    class func addActionForTerminate(to menu: NSMenu, forPath path: String, withHotkey hotkey: NSNumber, does selector: Selector) -> NSNumber {
+        let item = NSMenuItem(title: Constants.Actions.Terminate, action: selector, keyEquivalent: "t")
+        
+        item.target = Actions.self
+        item.representedObject = path
+        
+        menu.addItem(item)
+        return NSNumber(value: hotkey.intValue + 1)
+    }
+    
+    //----------------------------------------------------------------------------
     class func addSubMenus(to item: NSMenuItem, usingPath path: String)
     {
         let subMenu = NSMenu()
@@ -90,7 +101,6 @@ class Menus: NSObject
         
         
         hotkey = addAction(Constants.Actions.finder, toSubmenu: subMenu, forPath: path, withIcon: Constants.Paths.finderApp, andHotkey: hotkey, does: #selector(Actions.open(inFinder:)))
-        
         hotkey = addAction(Constants.Actions.terminal, toSubmenu: subMenu, forPath: path, withIcon: Constants.Paths.terminalApp, andHotkey: hotkey, does: #selector(Actions.open(inTerminal:)))
 
         hotkey = addActionForRealm(to: subMenu, forPath: path, withHotkey: hotkey)
@@ -102,9 +112,12 @@ class Menus: NSObject
         }
 
         subMenu.addItem(NSMenuItem.separator())
-        hotkey = addAction(Constants.Actions.clipboard, toSubmenu: subMenu, forPath: path, withHotkey: hotkey, does: #selector(Actions.copy(toPasteboard:)))
         
+        hotkey = addAction(Constants.Actions.clipboard, toSubmenu: subMenu, forPath: path, withHotkey: hotkey, does: #selector(Actions.copy(toPasteboard:)))
         hotkey = addAction(Constants.Actions.reset, toSubmenu: subMenu, forPath: path, withHotkey: hotkey, does: #selector(Actions.resetApplication(_:)))
+        
+        hotkey = addActionForTerminate(to: subMenu, forPath: path, withHotkey: hotkey, does: #selector(Actions.terminateApp(_:)))
+        
         item.submenu = subMenu
     }
     
@@ -116,7 +129,7 @@ class Menus: NSObject
         let applicationContentPath = application?.contentPath
         let item = NSMenuItem(title: title, action: #selector(Actions.openIn(withModifier:)), keyEquivalent: "\0")
         item.target = Actions.self
-        item.representedObject = applicationContentPath
+        item.representedObject = application
         item.image = application?.icon
         self.addSubMenus(to: item, usingPath: applicationContentPath!)
         menu.addItem(item)
@@ -203,29 +216,3 @@ class Menus: NSObject
 
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

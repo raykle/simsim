@@ -49,6 +49,12 @@ struct Simulator
     }
     
     //----------------------------------------------------------------------------
+    var deviceId: String
+    {
+        return properties["UDID"] as? String ?? ""
+    }
+    
+    //----------------------------------------------------------------------------
     func pathForAppGroup(withUUID uuid: String) -> String
     {
         return path + "data/Containers/Shared/AppGroup/\(uuid)/"

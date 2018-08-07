@@ -29,6 +29,7 @@ class Constants: NSObject
         static let reset = "Reset application data"
         static let login = "Start at Login"
         static let quit = "Quit"
+        static let Terminate = "Terminate"
     }
     
     struct Realm

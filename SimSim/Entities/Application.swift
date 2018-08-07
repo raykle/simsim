@@ -12,6 +12,7 @@ struct Application
     private(set) var icon: NSImage? = nil
     let contentPath: String
     private let properties: NSDictionary
+    let deviceId: String
     
     //----------------------------------------------------------------------------
     init?(dictionary: NSDictionary, simulator: Simulator)
@@ -25,6 +26,8 @@ struct Application
 
         self.contentPath = contentPath
         self.properties = properties
+        self.deviceId = simulator.deviceId
+        
         
         buildMetadata(forBundle: self.bundleIdentifier, rootPath: simulator.path)
     }

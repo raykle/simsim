@@ -57,6 +57,7 @@ class Actions: NSObject
         guard let path = item.representedObject as? String else { return }
         NSWorkspace.shared().openFile(path, withApplication: with)
     }
+
     
     //----------------------------------------------------------------------------
     class func open(inFinder sender: NSMenuItem)
@@ -140,31 +141,28 @@ class Actions: NSObject
             Actions.open(inFinder: sender)
         }
     }
-
+    
+    //----------------------------------------------------------------------------
+    class func run(cmd: String) {
+        let process = Process()
+        process.launchPath = "/bin/sh"
+        process.arguments = ["-c", String(format:"%@", cmd)]
+        process.launch()
+    }
+    
+    class func terminateApp(_ sender: NSMenuItem) {
+        let menu = sender.menu
+        let superMenu = menu?.supermenu
+        let highlightedItem = superMenu?.highlightedItem
+        
+        guard let application = highlightedItem?.representedObject as? Application else {
+            return
+        }
+        let deviceId = application.deviceId
+        let bundleId = application.bundleIdentifier
+        if (deviceId.count > 0) {
+            let terminateCmd = String(format: "xcrun simctl terminate %@ %@", deviceId, bundleId)
+            run(cmd: terminateCmd)
+        }
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
